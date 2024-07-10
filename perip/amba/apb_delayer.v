@@ -23,8 +23,8 @@ module apb_delayer(
   input  [31:0] out_prdata,
   input         out_pslverr
 );
-  parameter S_DELAY = 128;
-  parameter R_DELAY = 466 * S_DELAY / 100;
+  parameter integer S_DELAY = 128;
+  parameter integer R_DELAY = 500 * S_DELAY / 100;
   reg [31:0] delay_counter = 0;
   reg state = 0;
   reg _out_pready = 0;

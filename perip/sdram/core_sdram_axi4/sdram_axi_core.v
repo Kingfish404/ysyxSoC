@@ -289,6 +289,21 @@ begin
     begin
         next_state_r = STATE_IDLE;
 
+        // // Another pending write request (with no refresh pending)
+        // if (!refresh_q && ram_req_w && (ram_wr_w != 4'b0))
+        // begin
+        //     // Open row hit
+        //     if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w])
+        //         next_state_r = STATE_WRITE0;
+        // end
+    end
+    //-----------------------------------------
+    // STATE_WRITE1
+    //-----------------------------------------
+    STATE_WRITE1 :
+    begin
+        next_state_r = STATE_IDLE;
+
         // Another pending write request (with no refresh pending)
         if (!refresh_q && ram_req_w && (ram_wr_w != 4'b0))
         begin
@@ -297,21 +312,6 @@ begin
                 next_state_r = STATE_WRITE0;
         end
     end
-    //-----------------------------------------
-    // STATE_WRITE1
-    //-----------------------------------------
-    // STATE_WRITE1 :
-    // begin
-    //     next_state_r = STATE_IDLE;
-
-    //     // Another pending write request (with no refresh pending)
-    //     if (!refresh_q && ram_req_w && (ram_wr_w != 4'b0))
-    //     begin
-    //         // Open row hit
-    //         if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w])
-    //             next_state_r = STATE_WRITE0;
-    //     end
-    // end
     //-----------------------------------------
     // STATE_PRECHARGE
     //-----------------------------------------
@@ -471,19 +471,19 @@ else if (state_q == STATE_REFRESH)
 // Input sampling
 //-----------------------------------------------------------------
 
-// reg [SDRAM_DATA_W-1:0] sample_data0_q;
-// always @ (posedge clk_i or posedge rst_i)
-// if (rst_i)
-//     sample_data0_q <= {SDRAM_DATA_W{1'b0}};
-// else
-//     sample_data0_q <= sdram_data_in_w;
+reg [SDRAM_DATA_W-1:0] sample_data0_q;
+always @ (posedge clk_i or posedge rst_i)
+if (rst_i)
+    sample_data0_q <= {SDRAM_DATA_W{1'b0}};
+else
+    sample_data0_q <= sdram_data_in_w;
 
-// reg [SDRAM_DATA_W-1:0] sample_data_q;
-// always @ (posedge clk_i or posedge rst_i)
-// if (rst_i)
-//     sample_data_q <= {SDRAM_DATA_W{1'b0}};
-// else
-//     sample_data_q <= sample_data0_q;
+reg [SDRAM_DATA_W-1:0] sample_data_q;
+always @ (posedge clk_i or posedge rst_i)
+if (rst_i)
+    sample_data_q <= {SDRAM_DATA_W{1'b0}};
+else
+    sample_data_q <= sample_data0_q;
 
 //-----------------------------------------------------------------
 // Command Output
@@ -647,19 +647,19 @@ begin
     //-----------------------------------------
     // STATE_WRITE1
     //-----------------------------------------
-    // STATE_WRITE1 :
-    // begin
-    //     // Burst continuation
-    //     command_q   <= CMD_NOP;
+    STATE_WRITE1 :
+    begin
+        // Burst continuation
+        command_q   <= CMD_NOP;
 
-    //     data_q      <= data_buffer_q;
+        data_q      <= data_buffer_q;
 
-    //     // Disable auto precharge (auto close of row)
-    //     addr_q[AUTO_PRECHARGE]  <= 1'b0;
+        // Disable auto precharge (auto close of row)
+        addr_q[AUTO_PRECHARGE]  <= 1'b0;
 
-    //     // Write mask
-    //     dqm_q       <= dqm_buffer_q;
-    // end
+        // Write mask
+        dqm_q       <= dqm_buffer_q;
+    end
     endcase
 end
 
@@ -688,10 +688,8 @@ else if (state_q == STATE_WRITE0)
         data_buffer_q[15:0] <= ram_write_data_w[31:16];
         data_buffer_q[31:16] <= ram_write_data_w[15:0];
     end
-else if (rd_q[SDRAM_READ_LATENCY-1])
-    begin
-        data_buffer_q <= sdram_data_in_w;
-    end
+else if (rd_q[SDRAM_READ_LATENCY+1])
+    data_buffer_q <= sample_data_q;
 
 // Read data output
 assign ram_read_data_w = data_buffer_q;
@@ -708,7 +706,7 @@ else
 begin
     if (state_q == STATE_WRITE0)
         ack_q <= 1'b1;
-    else if (rd_q[SDRAM_READ_LATENCY-1])
+    else if (rd_q[SDRAM_READ_LATENCY+1])
         ack_q <= 1'b1;
     else
         ack_q <= 1'b0;

@@ -62,6 +62,68 @@ module axi4_delayer(
   input  [3:0]  out_bid,
   input  [1:0]  out_bresp
 );
+  parameter integer S_DELAY = 128;
+  parameter integer R_DELAY = 500 * S_DELAY / 100;
+  reg [31:0] delay_counter_w = 0;
+  reg [31:0] delay_counter_r = 0;
+  reg state_w = 0;
+  reg state_r = 0;
+  reg _out_bvalid = 0;
+  reg _out_rvalid = 0;
+  reg [3:0] _out_rid = 0;
+  reg [63:0] _out_rdata = 0;
+  reg [1:0] _out_rresp = 0;
+  reg _out_rlast = 0;
+
+  always @(posedge clock or posedge reset) begin
+    if (reset) begin
+      delay_counter_w <= 0;
+    end else begin
+      if (state_w == 0) begin
+        if (!out_bvalid & (in_awvalid | in_wvalid)) begin
+          delay_counter_w <= delay_counter_w + R_DELAY;
+          // $display("delay_counter_w: %d, state_w: %d", delay_counter_w, state_w);
+        end else if (out_bvalid) begin
+          state_w <= 1;
+          _out_bvalid <= out_bvalid;
+        end
+      end else if (state_w == 1) begin
+        if (delay_counter_w != 0) begin
+          delay_counter_w <= delay_counter_w > S_DELAY ? delay_counter_w - S_DELAY : 0;
+          // $display("delay_counter_w: %d, state_w: %d", delay_counter_w, state_w);
+        end else begin
+          state_w <= 0;
+          _out_bvalid <= 0;
+        end
+      end
+    end
+  end
+
+  always @(posedge clock or posedge reset) begin
+    if (reset) begin
+      state_r <= 0;
+    end else begin
+      if (state_r == 0) begin
+        if (!out_rvalid & (in_arvalid | out_rvalid)) begin
+          delay_counter_r <= delay_counter_r + R_DELAY;
+        end else if (out_rvalid) begin
+          state_r <= 1;
+          _out_rvalid <= out_rvalid;
+          _out_rid <= out_rid;
+          _out_rdata <= out_rdata;
+          _out_rresp <= out_rresp;
+          _out_rlast <= out_rlast;
+        end
+      end else if (state_r == 1) begin
+        if (delay_counter_r != 0) begin
+          delay_counter_r <= delay_counter_r > S_DELAY ? delay_counter_r - S_DELAY : 0;
+        end else begin
+          state_r <= 0;
+          _out_rvalid <= 0;
+        end
+        end
+    end
+  end
 
   assign in_arready = out_arready;
   assign out_arvalid = in_arvalid;
@@ -70,12 +132,13 @@ module axi4_delayer(
   assign out_arlen = in_arlen;
   assign out_arsize = in_arsize;
   assign out_arburst = in_arburst;
-  assign out_rready = in_rready;
-  assign in_rvalid = out_rvalid;
-  assign in_rid = out_rid;
-  assign in_rdata = out_rdata;
-  assign in_rresp = out_rresp;
-  assign in_rlast = out_rlast;
+  assign out_rready = in_rready & delay_counter_r == 0;
+  assign in_rvalid = _out_rvalid & delay_counter_r == 0;
+  assign in_rid = _out_rid;
+  assign in_rdata = _out_rdata;
+  assign in_rresp = _out_rresp;
+  assign in_rlast = _out_rlast;
+
   assign in_awready = out_awready;
   assign out_awvalid = in_awvalid;
   assign out_awid = in_awid;
@@ -88,8 +151,8 @@ module axi4_delayer(
   assign out_wdata = in_wdata;
   assign out_wstrb = in_wstrb;
   assign out_wlast = in_wlast;
-  assign out_bready = in_bready;
-  assign in_bvalid = out_bvalid;
+  assign out_bready = in_bready & delay_counter_w == 0;
+  assign in_bvalid = _out_bvalid & delay_counter_w == 0;
   assign in_bid = out_bid;
   assign in_bresp = out_bresp;
 
