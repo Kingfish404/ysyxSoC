@@ -1,8 +1,8 @@
 /*
 	Copyright 2020 Efabless Corp.
-
+ 
 	Author: Mohamed Shalan (mshalan@efabless.com)
-
+ 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
 	You may obtain a copy of the License at:
@@ -15,16 +15,16 @@
 */
 /*
     QSPI PSRAM Controller
-
+ 
     Pseudostatic RAM (PSRAM) is DRAM combined with a self-refresh circuit.
     It appears externally as slower SRAM, albeit with a density/cost advantage
     over true SRAM, and without the access complexity of DRAM.
-
+ 
     The controller was designed after https://www.issi.com/WW/pdf/66-67WVS4M8ALL-BLL.pdf
     utilizing both EBh and 38h commands for reading and writting.
-
+ 
     Benchmark data collected using CM0 CPU when memory is PSRAM only
-
+ 
         Benchmark       PSRAM (us)  1-cycle SRAM (us)   Slow-down
         ---------       ----------  -----------------   ---------
         xtea            840         212                 3.94
@@ -55,88 +55,104 @@ module PSRAM_READER (
     input   wire [3:0]      din,
     output  wire [3:0]      dout,
     output  wire            douten
-);
+  );
 
-    localparam  IDLE = 1'b0,
-                READ = 1'b1;
+  localparam  IDLE = 1'b0,
+              READ = 1'b1;
 
-    wire [7:0]  FINAL_COUNT = 19 + size*2; // was 27: Always read 1 word
+  wire [7:0]  FINAL_COUNT = 19 + size*2 -6; // was 27: Always read 1 word
 
-    reg         state, nstate;
-    reg [7:0]   counter;
-    reg [23:0]  saddr;
-    reg [7:0]   data [3:0];
+  reg         state, nstate;
+  reg [7:0]   counter;
+  reg [23:0]  saddr;
+  reg [7:0]   data [3:0];
 
-    wire[7:0]   CMD_EBH = 8'heb;
+  wire[7:0]   CMD_EBH = 8'heb;
 
-    always @*
-        case (state)
-            IDLE: if(rd) nstate = READ; else nstate = IDLE;
-            READ: if(done) nstate = IDLE; else nstate = READ;
-        endcase
-
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n) state <= IDLE;
-        else state <= nstate;
-
-    // Drive the Serial Clock (sck) @ clk/2
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            sck <= 1'b0;
-        else if(~ce_n)
-            sck <= ~ sck;
-        else if(state == IDLE)
-            sck <= 1'b0;
-
-    // ce_n logic
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            ce_n <= 1'b1;
-        else if(state == READ)
-            ce_n <= 1'b0;
+  always @*
+    case (state)
+      IDLE:
+        if(rd)
+          begin
+            nstate = READ;
+            // $display("rs size: %h, counter: %h", size, counter);
+          end
         else
-            ce_n <= 1'b1;
+          nstate = IDLE;
+      READ:
+        if(done)
+          begin
+            nstate = IDLE;
+            // $display("rd size: %h, counter: %h", size, counter);
+          end
+        else
+          nstate = READ;
+    endcase
 
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            counter <= 8'b0;
-        else if(sck & ~done)
-            counter <= counter + 1'b1;
-        else if(state == IDLE)
-            counter <= 8'b0;
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      state <= IDLE;
+    else
+      state <= nstate;
 
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            saddr <= 24'b0;
-        else if((state == IDLE) && rd)
-            //saddr <= {addr[23:2], 2'b0};
-            saddr <= {addr[23:0]};
+  // Drive the Serial Clock (sck) @ clk/2
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      sck <= 1'b0;
+    else if(~ce_n)
+      sck <= ~ sck;
+    else if(state == IDLE)
+      sck <= 1'b0;
 
-    // Sample with the negedge of sck
-    wire[1:0] byte_index = {counter[7:1] - 8'd10}[1:0];
-    always @ (posedge clk)
-        if(counter >= 20 && counter <= FINAL_COUNT)
-            if(sck)
-                data[byte_index] <= {data[byte_index][3:0], din}; // Optimize!
+  // ce_n logic
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      ce_n <= 1'b1;
+    else if(state == READ)
+      ce_n <= 1'b0;
+    else
+      ce_n <= 1'b1;
 
-    assign dout     =   (counter < 8)   ?   {3'b0, CMD_EBH[7 - counter]}:
-                        (counter == 8)  ?   saddr[23:20]        :
-                        (counter == 9)  ?   saddr[19:16]        :
-                        (counter == 10) ?   saddr[15:12]        :
-                        (counter == 11) ?   saddr[11:8]         :
-                        (counter == 12) ?   saddr[7:4]          :
-                        (counter == 13) ?   saddr[3:0]          :
-                        4'h0;
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      counter <= 8'b0;
+    else if(sck & ~done)
+      counter <= counter + 1'b1;
+    else if(state == IDLE)
+      counter <= 8'b0;
 
-    assign douten   = (counter < 14);
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      saddr <= 24'b0;
+    else if((state == IDLE) && rd)
+      //saddr <= {addr[23:2], 2'b0};
+      saddr <= {addr[23:0]};
 
-    assign done     = (counter == FINAL_COUNT+1);
+  // Sample with the negedge of sck
+  wire[1:0] byte_index = {counter[7:1] - 8'd10 - 1}[1:0];
+  always @ (posedge clk)
+    if(counter >= 20-6 && counter <= FINAL_COUNT)
+      if(sck)
+        data[byte_index] <= {data[byte_index][3:0], din}; // Optimize!
 
-    generate
-        genvar i;
-        for(i=0; i<4; i=i+1)
-            assign line[i*8+7: i*8] = data[i];
-    endgenerate
+  assign dout     =   (counter < 8-6)   ?   ((counter == 0) ? CMD_EBH[7:4] : CMD_EBH[3:0]) :
+         (counter == 8-6)  ?   saddr[23:20]        :
+         (counter == 9-6)  ?   saddr[19:16]        :
+         (counter == 10-6) ?   saddr[15:12]        :
+         (counter == 11-6) ?   saddr[11:8]         :
+         (counter == 12-6) ?   saddr[7:4]          :
+         (counter == 13-6) ?   saddr[3:0]          :
+         4'h0;
+
+  assign douten   = (counter < 14-6);
+
+  assign done     = (counter == FINAL_COUNT+1);
+
+  generate
+    genvar i;
+    for(i=0; i<4; i=i+1)
+      assign line[i*8+7: i*8] = data[i];
+  endgenerate
 
 
 endmodule
@@ -156,81 +172,100 @@ module PSRAM_WRITER (
     input   wire [3:0]      din,
     output  wire [3:0]      dout,
     output  wire            douten
-);
-    //localparam  DATA_START = 14;
-    localparam  IDLE = 1'b0,
-                WRITE = 1'b1;
+  );
+  //localparam  DATA_START = 14;
+  localparam  IDLE = 1'b0,
+              WRITE = 1'b1;
 
-    wire[7:0]        FINAL_COUNT = 13 + size*2;
+  wire[7:0]        FINAL_COUNT = 13 + size*2 - 6;
 
-    reg         state, nstate;
-    reg [7:0]   counter;
-    reg [23:0]  saddr;
-    //reg [7:0]   data [3:0];
+  reg         state, nstate;
+  reg [7:0]   counter;
+  reg [23:0]  saddr;
+  //reg [7:0]   data [3:0];
 
-    wire[7:0]   CMD_38H = 8'h38;
+  wire[7:0]   CMD_38H = 8'h38;
 
-    always @*
-        case (state)
-            IDLE: if(wr) nstate = WRITE; else nstate = IDLE;
-            WRITE: if(done) nstate = IDLE; else nstate = WRITE;
-        endcase
-
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n) state <= IDLE;
-        else state <= nstate;
-
-    // Drive the Serial Clock (sck) @ clk/2
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            sck <= 1'b0;
-        else if(~ce_n)
-            sck <= ~ sck;
-        else if(state == IDLE)
-            sck <= 1'b0;
-
-    // ce_n logic
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            ce_n <= 1'b1;
-        else if(state == WRITE)
-            ce_n <= 1'b0;
+  always @*
+    case (state)
+      IDLE:
+        if(wr)
+          begin
+            nstate = WRITE;
+            // $display("ws size: %h, counter: %h", size, counter);
+          end
         else
-            ce_n <= 1'b1;
+          nstate = IDLE;
+      WRITE:
+        if(done)
+          begin
+            // $display("wd size: %h, counter: %h", size, counter);
+            nstate = IDLE;
+          end
+        else
+          nstate = WRITE;
+    endcase
 
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            counter <= 8'b0;
-        else if(sck & ~done)
-            counter <= counter + 1'b1;
-        else if(state == IDLE)
-            counter <= 8'b0;
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      state <= IDLE;
+    else
+      state <= nstate;
 
-    always @ (posedge clk or negedge rst_n)
-        if(!rst_n)
-            saddr <= 24'b0;
-        else if((state == IDLE) && wr)
-            saddr <= addr;
+  // Drive the Serial Clock (sck) @ clk/2
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      sck <= 1'b0;
+    else if(~ce_n)
+      sck <= ~ sck;
+    else if(state == IDLE)
+      sck <= 1'b0;
 
-    assign dout     =   (counter < 8)   ?   {3'b0, CMD_38H[7 - counter]}:
-                        (counter == 8)  ?   saddr[23:20]        :
-                        (counter == 9)  ?   saddr[19:16]        :
-                        (counter == 10) ?   saddr[15:12]        :
-                        (counter == 11) ?   saddr[11:8]         :
-                        (counter == 12) ?   saddr[7:4]          :
-                        (counter == 13) ?   saddr[3:0]          :
-                        (counter == 14) ?   line[7:4]           :
-                        (counter == 15) ?   line[3:0]           :
-                        (counter == 16) ?   line[15:12]         :
-                        (counter == 17) ?   line[11:8]          :
-                        (counter == 18) ?   line[23:20]         :
-                        (counter == 19) ?   line[19:16]         :
-                        (counter == 20) ?   line[31:28]         :
-                        line[27:24];
+  // ce_n logic
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      ce_n <= 1'b1;
+    else if(state == WRITE)
+      ce_n <= 1'b0;
+    else
+      begin
+        ce_n <= 1'b1;
+        counter <= 8'b0;
+      end
 
-    assign douten   = (~ce_n);
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      counter <= 8'b0;
+    else if(sck & ~done & state == WRITE)
+      counter <= counter + 1'b1;
+    else if(state == IDLE)
+      counter <= 8'b0;
 
-    assign done     = (counter == FINAL_COUNT + 1);
+  always @ (posedge clk or negedge rst_n)
+    if(!rst_n)
+      saddr <= 24'b0;
+    else if((state == IDLE) && wr)
+      saddr <= addr;
+
+  assign dout     =   (counter < 8-6)   ? ((counter == 0) ? CMD_38H[7:4] : CMD_38H[3:0]):
+         (counter == 8-6)  ?   saddr[23:20]        :
+         (counter == 9-6)  ?   saddr[19:16]        :
+         (counter == 10-6) ?   saddr[15:12]        :
+         (counter == 11-6) ?   saddr[11:8]         :
+         (counter == 12-6) ?   saddr[7:4]          :
+         (counter == 13-6) ?   saddr[3:0]          :
+         (counter == 14-6) ?   line[7:4]           :
+         (counter == 15-6) ?   line[3:0]           :
+         (counter == 16-6) ?   line[15:12]         :
+         (counter == 17-6) ?   line[11:8]          :
+         (counter == 18-6) ?   line[23:20]         :
+         (counter == 19-6) ?   line[19:16]         :
+         (counter == 20-6) ?   line[31:28]         :
+         line[27:24];
+
+  assign douten   = (~ce_n);
+
+  assign done     = (counter == FINAL_COUNT + 1);
 
 
 endmodule
