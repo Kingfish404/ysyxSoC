@@ -3,7 +3,7 @@ V_FILE_FINAL = build/ysyxSoCFull.v
 SCALA_FILES = $(shell find src/ -name "*.scala")
 
 $(V_FILE_FINAL): $(SCALA_FILES)
-	mill -i ysyxsoc.runMain ysyx.Elaborate --target-dir $(@D)
+	./mill -i ysyxsoc.runMain ysyx.Elaborate --target-dir $(@D)
 	mv $(V_FILE_GEN) $@
 	if [ `uname` = "Darwin" ]; then \
 		gsed -i -e 's/_\(aw\|ar\|w\|r\|b\)_\(\|bits_\)/_\1/g' $@; \
