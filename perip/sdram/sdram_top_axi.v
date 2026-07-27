@@ -46,6 +46,59 @@ module sdram_top_axi(
   wire sdram_dout_en;
   wire [31:0] sdram_dout;
   assign sdram_dq = sdram_dout_en ? sdram_dout : 32'bz;
+
+  localparam integer ArDepth = 8;
+  reg [31:0] ar_addr_q[0:ArDepth-1];
+  reg [3:0] ar_id_q[0:ArDepth-1];
+  reg [7:0] ar_len_q[0:ArDepth-1];
+  reg [1:0] ar_burst_q[0:ArDepth-1];
+  reg [2:0] ar_read_ptr_q;
+  reg [2:0] ar_write_ptr_q;
+  reg [3:0] ar_count_q;
+  reg ar_active_q;
+
+  wire queued_arvalid = (ar_count_q != 0) && !ar_active_q;
+  wire queued_arready;
+  wire ar_push = in_arvalid && in_arready;
+  wire ar_pop = queued_arvalid && queued_arready;
+  wire read_done = in_rvalid && in_rready && in_rlast;
+
+  assign in_arready = ar_count_q < ArDepth;
+
+  always @(posedge clock or posedge reset)
+    if (reset)
+      begin
+        ar_read_ptr_q <= 0;
+        ar_write_ptr_q <= 0;
+        ar_count_q <= 0;
+        ar_active_q <= 0;
+      end
+    else
+      begin
+        if (ar_push)
+          begin
+            ar_addr_q[ar_write_ptr_q] <= in_araddr;
+            ar_id_q[ar_write_ptr_q] <= in_arid;
+            ar_len_q[ar_write_ptr_q] <= in_arlen;
+            ar_burst_q[ar_write_ptr_q] <= in_arburst;
+            ar_write_ptr_q <= ar_write_ptr_q + 1'b1;
+          end
+
+        if (ar_pop)
+          begin
+            ar_read_ptr_q <= ar_read_ptr_q + 1'b1;
+            ar_active_q <= 1'b1;
+          end
+        else if (read_done)
+          ar_active_q <= 1'b0;
+
+        case ({ar_push, ar_pop})
+          2'b10: ar_count_q <= ar_count_q + 1'b1;
+          2'b01: ar_count_q <= ar_count_q - 1'b1;
+          default: ar_count_q <= ar_count_q;
+        endcase
+      end
+
   sdram_axi #(
     .SDRAM_MHZ(100),
     .SDRAM_ADDR_W(24),
@@ -64,11 +117,11 @@ module sdram_top_axi(
     .inport_wstrb_i(in_wstrb),
     .inport_wlast_i(in_wlast),
     .inport_bready_i(in_bready),
-    .inport_arvalid_i(in_arvalid),
-    .inport_araddr_i(in_araddr),
-    .inport_arid_i(in_arid),
-    .inport_arlen_i(in_arlen),
-    .inport_arburst_i(in_arburst),
+    .inport_arvalid_i(queued_arvalid),
+    .inport_araddr_i(ar_addr_q[ar_read_ptr_q]),
+    .inport_arid_i(ar_id_q[ar_read_ptr_q]),
+    .inport_arlen_i(ar_len_q[ar_read_ptr_q]),
+    .inport_arburst_i(ar_burst_q[ar_read_ptr_q]),
     .inport_rready_i(in_rready),
 
     .inport_awready_o(in_awready),
@@ -76,7 +129,7 @@ module sdram_top_axi(
     .inport_bvalid_o(in_bvalid),
     .inport_bresp_o(in_bresp),
     .inport_bid_o(in_bid),
-    .inport_arready_o(in_arready),
+    .inport_arready_o(queued_arready),
     .inport_rvalid_o(in_rvalid),
     .inport_rdata_o(in_rdata),
     .inport_rresp_o(in_rresp),

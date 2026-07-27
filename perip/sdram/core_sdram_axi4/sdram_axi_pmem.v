@@ -247,7 +247,11 @@ begin
 end
 
 sdram_axi_pmem_fifo2
-#( .WIDTH(1 + 1 + 4) )
+#(
+    .WIDTH(1 + 1 + 4),
+    .DEPTH(8),
+    .ADDR_W(3)
+)
 u_requests
 (
     .clk_i(clk_i),
@@ -275,7 +279,11 @@ wire [3:0] resp_id_w = req_out_w[3:0];
 wire resp_valid_w;
 
 sdram_axi_pmem_fifo2
-#( .WIDTH(32) )
+#(
+    .WIDTH(32),
+    .DEPTH(8),
+    .ADDR_W(3)
+)
 u_response
 (
     .clk_i(clk_i),
